@@ -16,20 +16,28 @@ const FIREBASE_CONFIG = {
 
 // ---- Constants ----
 const USERS = ['A', 'S'];
-const SESSION_KEY = 'lovelore_session_v2';
-const ENC_STORAGE_KEY = 'lovelore_enc_secret_v2';
+const SESSION_KEY = 'lovelore_session';
+const ENC_STORAGE_KEY = 'lovelore_enc_secret';
 const ACCOUNTS_COLLECTION = 'social_accounts';
-const POSTS_COLLECTION = 'social_posts_v2';
-const COMMENTS_COLLECTION = 'social_comments_v2';
-const SETTINGS_COLLECTION = 'social_settings_v2';
-const CAPSULES_COLLECTION = 'social_capsules_v2';
-const COUNTDOWNS_COLLECTION = 'social_countdowns_v2';
-const DAILY_NOTES_COLLECTION = 'social_daily_notes_v2';
-const MESSAGES_COLLECTION = 'social_messages_v2';
-const CHAT_META_COLLECTION = 'social_chat_meta_v2';
-const LETTERS_COLLECTION = 'social_letters_v2';
+const POSTS_COLLECTION = 'social_posts';
+const COMMENTS_COLLECTION = 'social_comments';
+const SETTINGS_COLLECTION = 'social_settings';
+const CAPSULES_COLLECTION = 'social_capsules';
+const COUNTDOWNS_COLLECTION = 'social_countdowns';
+const DAILY_NOTES_COLLECTION = 'social_daily_notes';
+const MESSAGES_COLLECTION = 'social_messages';
+const CHAT_META_COLLECTION = 'social_chat_meta';
+const LETTERS_COLLECTION = 'social_letters';
 const IMAGE_MAX_WIDTH = 800;
 const IMAGE_QUALITY = 0.6;
+
+// Default shared encryption secret for the new couple (Avinaba + Sristi).
+// Pre-filled in the encryption setup/unlock screens so the user just clicks the button.
+const DEFAULT_ENC_SECRET = 'avilovesri';
+
+// Default anniversary — September 29, 2026 at 12:00 AM (midnight).
+// Force-set into Firestore by the one-time migration.
+const DEFAULT_ANNIVERSARY_DATE = '2026-09-29T00:00';
 
 const REACTION_TYPES = {
     heart: { emoji: '❤️', label: 'Love' },
@@ -144,7 +152,7 @@ let allChatMessages = [];
 let lettersUnsubscribe = null;
 let letterImageData = null;
 let _lastTouchEndTime = 0; // Prevent synthetic mouse events from triggering double-tap
-let currentChatTheme = localStorage.getItem('lovelore_chat_theme_v2') || 'default';
+let currentChatTheme = localStorage.getItem('lovelore_chat_theme') || 'default';
 
 // ---- Encryption State ----
 let encryptionKey = null;
@@ -153,7 +161,7 @@ const _decryptCache = new Map();
 
 // ============ OFFLINE CACHE (IndexedDB) ============
 
-const OFFLINE_DB = 'lovelore_offline_v2';
+const OFFLINE_DB = 'lovelore_offline';
 const OFFLINE_STORE = 'cached_data';
 const QUEUE_STORE = 'write_queue';
 
@@ -355,31 +363,130 @@ document.addEventListener('DOMContentLoaded', () => {
 
 // ============ ONE-TIME OLD CACHE CLEANUP ============
 // Removes leftover localStorage keys, IndexedDB, and service-worker caches
-// from the previous installation (the one shared with the old partner).
-// Runs once on every page load — safe to call repeatedly because the
-// operations are idempotent.
+// from the previous installation. Runs on every page load — safe because
+// operations are idempotent. Also clears the old session/secret on first
+// visit with the new code (tracked by the lovelore_v2_migrated flag) so
+// the user goes through a fresh login + encryption setup.
 function cleanupOldCache() {
     try {
-        // Old localStorage keys (pre-v2)
-        ['lovelore_session', 'lovelore_enc_secret', 'lovelore_chat_theme'].forEach(k => {
+        // On first load with the new code, clear old session/secret so user re-authenticates
+        // with the new "avilovesri" encryption key and fresh anniversary.
+        const migrated = localStorage.getItem('lovelore_v2_migrated') === 'done';
+        if (!migrated) {
+            localStorage.removeItem('lovelore_session');
+            localStorage.removeItem('lovelore_enc_secret');
+        }
+
+        // Always remove stale v2-variant keys from the previous attempt
+        ['lovelore_session_v2', 'lovelore_enc_secret_v2', 'lovelore_chat_theme_v2'].forEach(k => {
             localStorage.removeItem(k);
         });
 
-        // Old IndexedDB offline cache
-        try { indexedDB.deleteDatabase('lovelore_offline'); } catch (e) {}
+        // Old IndexedDB offline caches
+        try { indexedDB.deleteDatabase('lovelore_offline_v2'); } catch (e) {}
 
-        // Old service worker caches (anything not matching the new v14 names)
+        // Old service worker caches (anything not matching the current v15 names)
         if (window.caches && caches.keys) {
             caches.keys().then(keys => {
                 keys.forEach(key => {
-                    // Delete any lovelore cache that is not the current v14 set
-                    if (key.startsWith('lovelore') && key !== 'lovelore-v14' && key !== 'lovelore-runtime-v14') {
+                    if (key.startsWith('lovelore') && key !== 'lovelore-v15' && key !== 'lovelore-runtime-v15') {
                         caches.delete(key);
                     }
                 });
             }).catch(() => {});
         }
     } catch (e) { console.warn('Old cache cleanup failed:', e); }
+}
+
+// ============ ONE-TIME DATA MIGRATION ============
+// Runs once on first load with the new code. Deletes ALL old data from
+// Firestore (posts, messages, comments, capsules, countdowns, daily notes,
+// letters, chat meta), deletes the ex-partner's account, sets the new
+// encryption secret to "avilovesri", and force-sets the anniversary to
+// September 29, 2026 at 12:00 AM.
+//
+// This gives the user a completely fresh start with the new partner while
+// keeping the original Firestore collection names (so security rules still
+// allow reads/writes → fixes "Failed to send").
+let _migrationPromise = null;
+
+function runV2Migration() {
+    if (!_migrationPromise) {
+        _migrationPromise = doV2Migration();
+    }
+    return _migrationPromise;
+}
+
+async function doV2Migration() {
+    // Already migrated? Skip.
+    if (localStorage.getItem('lovelore_v2_migrated') === 'done') return;
+
+    // Wait for anonymous auth to complete (needed for Firestore access)
+    if (!fAuth || !fAuth.currentUser) {
+        await new Promise(resolve => {
+            if (!fAuth) { resolve(); return; }
+            const unsub = fAuth.onAuthStateChanged(user => {
+                if (user) { unsub(); resolve(); }
+            });
+            // Safety timeout — don't block forever if auth is slow
+            setTimeout(() => { unsub(); resolve(); }, 10000);
+        });
+    }
+
+    try {
+        // 1. Delete ALL documents from every data collection
+        const collectionsToWipe = [
+            POSTS_COLLECTION, COMMENTS_COLLECTION, CAPSULES_COLLECTION,
+            COUNTDOWNS_COLLECTION, DAILY_NOTES_COLLECTION, MESSAGES_COLLECTION,
+            LETTERS_COLLECTION, CHAT_META_COLLECTION
+        ];
+        for (const colName of collectionsToWipe) {
+            await deleteAllDocsInCollection(colName);
+        }
+
+        // 2. Delete the ex-partner's account (user "P")
+        try {
+            await fdb.collection(ACCOUNTS_COLLECTION).doc('p').delete();
+        } catch (e) { /* may not exist — ignore */ }
+
+        // 3. Set the new encryption secret to "avilovesri"
+        const encHash = await hashSecret(DEFAULT_ENC_SECRET);
+        await fdb.collection(SETTINGS_COLLECTION).doc('encryption').set({
+            secretHash: encHash,
+            createdAt: firebase.firestore.FieldValue.serverTimestamp()
+        });
+
+        // 4. Force-set the anniversary to September 29, 2026 at 12:00 AM
+        await fdb.collection(SETTINGS_COLLECTION).doc('anniversary').set({
+            date: DEFAULT_ANNIVERSARY_DATE,
+            updatedAt: firebase.firestore.FieldValue.serverTimestamp()
+        });
+
+        // Mark migration as complete so it never runs again
+        localStorage.setItem('lovelore_v2_migrated', 'done');
+        console.log('V2 migration complete — fresh start ready.');
+    } catch (e) {
+        console.error('V2 migration failed (will retry next load):', e);
+        // Don't set the flag so it retries on next page load
+    }
+}
+
+// Helper: delete all documents in a Firestore collection using batched writes
+async function deleteAllDocsInCollection(colName) {
+    try {
+        const snapshot = await fdb.collection(colName).get();
+        if (snapshot.empty) return;
+        // Firestore batches max out at 500 operations — use 400 to be safe
+        const docs = snapshot.docs;
+        for (let i = 0; i < docs.length; i += 400) {
+            const batch = fdb.batch();
+            const chunk = docs.slice(i, i + 400);
+            chunk.forEach(doc => batch.delete(doc.ref));
+            await batch.commit();
+        }
+    } catch (e) {
+        console.warn('Delete collection failed:', colName, e);
+    }
 }
 
 // ---- Auto Update: Listen for service worker updates ----
@@ -419,7 +526,11 @@ function initFirebase() {
             if (err.code === 'failed-precondition') console.warn('Firestore: multiple tabs');
             else if (err.code === 'unimplemented') console.warn('Firestore: persistence not supported');
         });
-        fAuth.signInAnonymously().catch(e => console.error('Auth failed:', e));
+        // Start anonymous auth, then kick off the one-time data migration
+        // in the background (deletes old data, sets encryption + anniversary).
+        fAuth.signInAnonymously().then(() => {
+            runV2Migration(); // background — doesn't block UI
+        }).catch(e => console.error('Auth failed:', e));
         console.log('Firebase initialized');
     } catch (e) { console.error('Firebase init failed:', e); }
 }
@@ -748,11 +859,12 @@ function clearAuthFields() { document.getElementById('newPassword').value = ''; 
 
 // ============ ENCRYPTION SETUP FLOW ============
 
-// Default shared secret for the new couple (Avinaba + Sristi).
-// Pre-filled so the user only has to click "Encrypt & Continue" / "Unlock".
-const DEFAULT_ENC_SECRET = 'avilovesri';
-
 async function checkEncryptionAndProceed() {
+    // Ensure the one-time data migration has completed before proceeding.
+    // The migration wipes all old data, sets the encryption secret to
+    // "avilovesri", and sets the anniversary to Sept 29, 2026.
+    await runV2Migration();
+
     // Check if shared secret exists in Firestore
     try {
         const doc = await fdb.collection(SETTINGS_COLLECTION).doc('encryption').get();
@@ -1053,8 +1165,14 @@ let currentReactTarget = null;
 function openReactionPicker(btn) {
     const picker = document.getElementById('reactionPicker');
     const rect = btn.getBoundingClientRect();
-    picker.style.left = Math.max(8, rect.left - 20) + 'px';
-    picker.style.top = (rect.top - 48) + 'px';
+    // Position the picker above the button, clamped within the viewport
+    const pickerWidth = 280; // approximate width of 6 reaction buttons
+    let leftPos = rect.left - 20;
+    if (leftPos + pickerWidth > window.innerWidth - 8) {
+        leftPos = window.innerWidth - pickerWidth - 8;
+    }
+    picker.style.left = Math.max(8, leftPos) + 'px';
+    picker.style.top = Math.max(8, rect.top - 48) + 'px';
     picker.style.display = 'flex';
     currentReactTarget = { postId: btn.dataset.postId, postAuthor: btn.dataset.postAuthor };
 
@@ -1787,28 +1905,22 @@ function loadProfileStats() {
 
 // ============ ANNIVERSARY COUNTER ============
 
-// Default anniversary for the new couple — September 29, 2026.
-// Auto-set on first run if no anniversary exists in Firestore.
-const DEFAULT_ANNIVERSARY_DATE = '2026-09-29T00:00';
-
 function loadAnniversary() {
-    // One-time check: silently set default anniversary if none exists yet
-    fdb.collection(SETTINGS_COLLECTION).doc('anniversary').get().then(async doc => {
-        if (!doc.exists || !doc.data().date) {
+    // The one-time migration already force-set the anniversary to
+    // DEFAULT_ANNIVERSARY_DATE (2026-09-29T00:00 = Sept 29, 2026 12:00 AM).
+    // This listener picks up the date from Firestore and renders the counter.
+    fdb.collection(SETTINGS_COLLECTION).doc('anniversary').onSnapshot(async doc => {
+        if (doc.exists && doc.data().date) {
+            renderAnniversary(doc.data().date);
+        } else {
+            // Fallback: if the doc somehow doesn't exist yet, force-set it
             try {
                 await fdb.collection(SETTINGS_COLLECTION).doc('anniversary').set({
                     date: DEFAULT_ANNIVERSARY_DATE,
                     updatedAt: firebase.firestore.FieldValue.serverTimestamp()
                 });
-            } catch (e) { console.warn('Default anniversary set failed:', e); }
-        }
-    }).catch(e => console.warn('Anniversary check failed:', e));
-
-    // Real-time listener for anniversary updates
-    fdb.collection(SETTINGS_COLLECTION).doc('anniversary').onSnapshot(async doc => {
-        if (doc.exists && doc.data().date) { renderAnniversary(doc.data().date); }
-        else {
-            // Try offline cache
+            } catch (e) { console.warn('Anniversary fallback set failed:', e); }
+            // Try offline cache while waiting
             const cached = await getCachedData('anniversary');
             if (cached) { renderAnniversary(cached); }
             else { document.getElementById('anniversaryBanner').style.display = 'none'; }
@@ -2601,8 +2713,19 @@ function showChatContextMenuAt(x, y, msgId) {
     const msg = allChatMessages.find(m => m.id === msgId);
     if (!msg) return;
 
-    menu.style.left = Math.min(x, window.innerWidth - 170) + 'px';
-    menu.style.top = Math.max(60, y - 120) + 'px';
+    const menuWidth = 170;
+    const menuHeight = 160;
+    // Clamp horizontally within viewport
+    let leftPos = Math.min(x, window.innerWidth - menuWidth - 8);
+    if (leftPos < 8) leftPos = 8;
+    // Clamp vertically within viewport
+    let topPos = y - 120;
+    if (topPos + menuHeight > window.innerHeight - 8) {
+        topPos = window.innerHeight - menuHeight - 8;
+    }
+    if (topPos < 60) topPos = 60;
+    menu.style.left = leftPos + 'px';
+    menu.style.top = topPos + 'px';
     menu.style.display = 'block';
 
     // Show/hide delete based on ownership
@@ -2868,7 +2991,7 @@ function openChatThemeModal() {
         btn.addEventListener('click', () => {
             applyChatTheme(key);
             currentChatTheme = key;
-            localStorage.setItem('lovelore_chat_theme_v2', key);
+            localStorage.setItem('lovelore_chat_theme', key);
             // Save to Firestore so partner sees it too
             if (fdb) {
                 fdb.collection(CHAT_META_COLLECTION).doc('theme').set({ current: key, updatedAt: firebase.firestore.FieldValue.serverTimestamp() }).catch(e => console.error('Theme save failed:', e));
@@ -2925,7 +3048,7 @@ function applyChatTheme(themeKey) {
 
 function loadChatTheme() {
     // Load from localStorage first for instant apply
-    const savedTheme = localStorage.getItem('lovelore_chat_theme_v2');
+    const savedTheme = localStorage.getItem('lovelore_chat_theme');
     if (savedTheme) {
         applyChatTheme(savedTheme);
     }
@@ -2936,7 +3059,7 @@ function loadChatTheme() {
                 const theme = doc.data().current;
                 if (theme && theme !== currentChatTheme) {
                     applyChatTheme(theme);
-                    localStorage.setItem('lovelore_chat_theme_v2', theme);
+                    localStorage.setItem('lovelore_chat_theme', theme);
                 }
             }
         });

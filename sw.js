@@ -3,8 +3,8 @@
    Network-first for instant updates
    ============================================ */
 
-const CACHE_NAME = 'lovelore-v14';
-const RUNTIME_CACHE = 'lovelore-runtime-v14';
+const CACHE_NAME = 'lovelore-v15';
+const RUNTIME_CACHE = 'lovelore-runtime-v15';
 
 // Core app files to pre-cache on install
 const APP_SHELL = [
