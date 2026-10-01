@@ -385,11 +385,11 @@ function cleanupOldCache() {
         // Old IndexedDB offline caches
         try { indexedDB.deleteDatabase('lovelore_offline_v2'); } catch (e) {}
 
-        // Old service worker caches (anything not matching the current v15 names)
+        // Old service worker caches (anything not matching the current v16 names)
         if (window.caches && caches.keys) {
             caches.keys().then(keys => {
                 keys.forEach(key => {
-                    if (key.startsWith('lovelore') && key !== 'lovelore-v15' && key !== 'lovelore-runtime-v15') {
+                    if (key.startsWith('lovelore') && key !== 'lovelore-v16' && key !== 'lovelore-runtime-v16') {
                         caches.delete(key);
                     }
                 });
@@ -854,8 +854,21 @@ function handleLogout() {
 }
 
 function showAuthError(id, msg) { const el = document.getElementById(id); el.textContent = msg; el.style.display = 'block'; }
-function clearAuthErrors() { document.getElementById('setPassError').style.display = 'none'; document.getElementById('loginError').style.display = 'none'; }
-function clearAuthFields() { document.getElementById('newPassword').value = ''; document.getElementById('confirmPassword').value = ''; document.getElementById('loginPassword').value = ''; }
+function clearAuthErrors() {
+    document.getElementById('setPassError').style.display = 'none';
+    document.getElementById('loginError').style.display = 'none';
+    const se = document.getElementById('secretError'); if (se) se.style.display = 'none';
+    const ue = document.getElementById('unlockError'); if (ue) ue.style.display = 'none';
+}
+function clearAuthFields() {
+    document.getElementById('newPassword').value = '';
+    document.getElementById('confirmPassword').value = '';
+    document.getElementById('loginPassword').value = '';
+    // Also clear encryption secret inputs so they never linger after logout
+    const ns = document.getElementById('newSecret'); if (ns) ns.value = '';
+    const cs = document.getElementById('confirmSecret'); if (cs) cs.value = '';
+    const us = document.getElementById('unlockSecret'); if (us) us.value = '';
+}
 
 // ============ ENCRYPTION SETUP FLOW ============
 
@@ -880,23 +893,25 @@ async function checkEncryptionAndProceed() {
                     return;
                 }
             }
-            // Show unlock screen — pre-fill with default secret for convenience
+            // Show unlock screen — user must type the shared secret themselves.
+            // The input is left EMPTY for security (never pre-filled).
             document.getElementById('loginScreen').style.display = 'none';
             document.getElementById('encryptionScreen').style.display = 'flex';
             document.getElementById('setSecretForm').style.display = 'none';
             document.getElementById('unlockSecretForm').style.display = 'block';
             const unlockInput = document.getElementById('unlockSecret');
-            if (unlockInput && !unlockInput.value) unlockInput.value = DEFAULT_ENC_SECRET;
+            if (unlockInput) { unlockInput.value = ''; unlockInput.focus(); }
         } else {
-            // No secret yet - show set screen — pre-fill with default secret
+            // No secret yet - show set screen — user must type the shared secret themselves.
             document.getElementById('loginScreen').style.display = 'none';
             document.getElementById('encryptionScreen').style.display = 'flex';
             document.getElementById('setSecretForm').style.display = 'block';
             document.getElementById('unlockSecretForm').style.display = 'none';
             const newInput = document.getElementById('newSecret');
             const confirmInput = document.getElementById('confirmSecret');
-            if (newInput && !newInput.value) newInput.value = DEFAULT_ENC_SECRET;
-            if (confirmInput && !confirmInput.value) confirmInput.value = DEFAULT_ENC_SECRET;
+            if (newInput) newInput.value = '';
+            if (confirmInput) confirmInput.value = '';
+            if (newInput) newInput.focus();
         }
     } catch (e) {
         console.error('Encryption check failed:', e);
