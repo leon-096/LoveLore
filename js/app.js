@@ -15,19 +15,19 @@ const FIREBASE_CONFIG = {
 };
 
 // ---- Constants ----
-const USERS = ['A', 'P'];
-const SESSION_KEY = 'lovelore_session';
-const ENC_STORAGE_KEY = 'lovelore_enc_secret';
+const USERS = ['A', 'S'];
+const SESSION_KEY = 'lovelore_session_v2';
+const ENC_STORAGE_KEY = 'lovelore_enc_secret_v2';
 const ACCOUNTS_COLLECTION = 'social_accounts';
-const POSTS_COLLECTION = 'social_posts';
-const COMMENTS_COLLECTION = 'social_comments';
-const SETTINGS_COLLECTION = 'social_settings';
-const CAPSULES_COLLECTION = 'social_capsules';
-const COUNTDOWNS_COLLECTION = 'social_countdowns';
-const DAILY_NOTES_COLLECTION = 'social_daily_notes';
-const MESSAGES_COLLECTION = 'social_messages';
-const CHAT_META_COLLECTION = 'social_chat_meta';
-const LETTERS_COLLECTION = 'social_letters';
+const POSTS_COLLECTION = 'social_posts_v2';
+const COMMENTS_COLLECTION = 'social_comments_v2';
+const SETTINGS_COLLECTION = 'social_settings_v2';
+const CAPSULES_COLLECTION = 'social_capsules_v2';
+const COUNTDOWNS_COLLECTION = 'social_countdowns_v2';
+const DAILY_NOTES_COLLECTION = 'social_daily_notes_v2';
+const MESSAGES_COLLECTION = 'social_messages_v2';
+const CHAT_META_COLLECTION = 'social_chat_meta_v2';
+const LETTERS_COLLECTION = 'social_letters_v2';
 const IMAGE_MAX_WIDTH = 800;
 const IMAGE_QUALITY = 0.6;
 
@@ -144,7 +144,7 @@ let allChatMessages = [];
 let lettersUnsubscribe = null;
 let letterImageData = null;
 let _lastTouchEndTime = 0; // Prevent synthetic mouse events from triggering double-tap
-let currentChatTheme = localStorage.getItem('lovelore_chat_theme') || 'default';
+let currentChatTheme = localStorage.getItem('lovelore_chat_theme_v2') || 'default';
 
 // ---- Encryption State ----
 let encryptionKey = null;
@@ -153,7 +153,7 @@ const _decryptCache = new Map();
 
 // ============ OFFLINE CACHE (IndexedDB) ============
 
-const OFFLINE_DB = 'lovelore_offline';
+const OFFLINE_DB = 'lovelore_offline_v2';
 const OFFLINE_STORE = 'cached_data';
 const QUEUE_STORE = 'write_queue';
 
@@ -346,11 +346,41 @@ function getStoredEncSecret() { const s = localStorage.getItem(ENC_STORAGE_KEY);
 // ============ INITIALIZATION ============
 
 document.addEventListener('DOMContentLoaded', () => {
+    cleanupOldCache();   // Wipe leftover cache/storage from the previous installation
     initFirebase();
     checkSession();
     setupEventListeners();
     setupAutoUpdate();
 });
+
+// ============ ONE-TIME OLD CACHE CLEANUP ============
+// Removes leftover localStorage keys, IndexedDB, and service-worker caches
+// from the previous installation (the one shared with the old partner).
+// Runs once on every page load — safe to call repeatedly because the
+// operations are idempotent.
+function cleanupOldCache() {
+    try {
+        // Old localStorage keys (pre-v2)
+        ['lovelore_session', 'lovelore_enc_secret', 'lovelore_chat_theme'].forEach(k => {
+            localStorage.removeItem(k);
+        });
+
+        // Old IndexedDB offline cache
+        try { indexedDB.deleteDatabase('lovelore_offline'); } catch (e) {}
+
+        // Old service worker caches (anything not matching the new v14 names)
+        if (window.caches && caches.keys) {
+            caches.keys().then(keys => {
+                keys.forEach(key => {
+                    // Delete any lovelore cache that is not the current v14 set
+                    if (key.startsWith('lovelore') && key !== 'lovelore-v14' && key !== 'lovelore-runtime-v14') {
+                        caches.delete(key);
+                    }
+                });
+            }).catch(() => {});
+        }
+    } catch (e) { console.warn('Old cache cleanup failed:', e); }
+}
 
 // ---- Auto Update: Listen for service worker updates ----
 function setupAutoUpdate() {
@@ -718,6 +748,10 @@ function clearAuthFields() { document.getElementById('newPassword').value = ''; 
 
 // ============ ENCRYPTION SETUP FLOW ============
 
+// Default shared secret for the new couple (Avinaba + Sristi).
+// Pre-filled so the user only has to click "Encrypt & Continue" / "Unlock".
+const DEFAULT_ENC_SECRET = 'avilovesri';
+
 async function checkEncryptionAndProceed() {
     // Check if shared secret exists in Firestore
     try {
@@ -734,17 +768,23 @@ async function checkEncryptionAndProceed() {
                     return;
                 }
             }
-            // Show unlock screen
+            // Show unlock screen — pre-fill with default secret for convenience
             document.getElementById('loginScreen').style.display = 'none';
             document.getElementById('encryptionScreen').style.display = 'flex';
             document.getElementById('setSecretForm').style.display = 'none';
             document.getElementById('unlockSecretForm').style.display = 'block';
+            const unlockInput = document.getElementById('unlockSecret');
+            if (unlockInput && !unlockInput.value) unlockInput.value = DEFAULT_ENC_SECRET;
         } else {
-            // No secret yet - show set screen
+            // No secret yet - show set screen — pre-fill with default secret
             document.getElementById('loginScreen').style.display = 'none';
             document.getElementById('encryptionScreen').style.display = 'flex';
             document.getElementById('setSecretForm').style.display = 'block';
             document.getElementById('unlockSecretForm').style.display = 'none';
+            const newInput = document.getElementById('newSecret');
+            const confirmInput = document.getElementById('confirmSecret');
+            if (newInput && !newInput.value) newInput.value = DEFAULT_ENC_SECRET;
+            if (confirmInput && !confirmInput.value) confirmInput.value = DEFAULT_ENC_SECRET;
         }
     } catch (e) {
         console.error('Encryption check failed:', e);
@@ -1611,8 +1651,8 @@ function openDailyNoteModal() {
     document.getElementById('dailyNoteInput').value = '';
 
     const todayKey = getTodayKey();
-    const partner = currentUser === 'A' ? 'P' : 'p';
-    const partnerKey = currentUser === 'A' ? 'p' : 'a';
+    const partner = currentUser === 'A' ? 'S' : 's';
+    const partnerKey = currentUser === 'A' ? 's' : 'a';
 
     // Load existing note
     fdb.collection(DAILY_NOTES_COLLECTION).doc(todayKey).get().then(async doc => {
@@ -1747,7 +1787,24 @@ function loadProfileStats() {
 
 // ============ ANNIVERSARY COUNTER ============
 
+// Default anniversary for the new couple — September 29, 2026.
+// Auto-set on first run if no anniversary exists in Firestore.
+const DEFAULT_ANNIVERSARY_DATE = '2026-09-29T00:00';
+
 function loadAnniversary() {
+    // One-time check: silently set default anniversary if none exists yet
+    fdb.collection(SETTINGS_COLLECTION).doc('anniversary').get().then(async doc => {
+        if (!doc.exists || !doc.data().date) {
+            try {
+                await fdb.collection(SETTINGS_COLLECTION).doc('anniversary').set({
+                    date: DEFAULT_ANNIVERSARY_DATE,
+                    updatedAt: firebase.firestore.FieldValue.serverTimestamp()
+                });
+            } catch (e) { console.warn('Default anniversary set failed:', e); }
+        }
+    }).catch(e => console.warn('Anniversary check failed:', e));
+
+    // Real-time listener for anniversary updates
     fdb.collection(SETTINGS_COLLECTION).doc('anniversary').onSnapshot(async doc => {
         if (doc.exists && doc.data().date) { renderAnniversary(doc.data().date); }
         else {
@@ -1923,7 +1980,7 @@ function attachChatMetaListener() {
         .onSnapshot(doc => {
             if (!doc.exists) return;
             const data = doc.data();
-            const partner = currentUser === 'A' ? 'p' : 'a';
+            const partner = currentUser === 'A' ? 's' : 'a';
             const partnerUpper = partner.toUpperCase();
 
             // Update partner online status with heartbeat check
@@ -2085,7 +2142,7 @@ function renderChatBubble(msg, groupClass, isFirstInGroup, isLastInGroup, isLast
 
     if (msg.deleted) {
         const avatarHtml = (!isMine && isFirstInGroup) ?
-            `<div class="chat-msg-avatar user-${msg.author ? msg.author.toLowerCase() : 'p'}">${msg.author || '?'}</div>` :
+            `<div class="chat-msg-avatar user-${msg.author ? msg.author.toLowerCase() : 's'}">${msg.author || '?'}</div>` :
             (!isMine ? `<div class="chat-msg-avatar invisible">·</div>` : '');
         return `<div class="chat-msg ${cls} ${groupClass}" data-msg-id="${msg.id}" data-msg-author="${msg.author}">
             ${avatarHtml}<div class="chat-bubble"><span class="chat-msg-deleted">Message unavailable</span>
@@ -2096,7 +2153,7 @@ function renderChatBubble(msg, groupClass, isFirstInGroup, isLastInGroup, isLast
     let avatarHtml = '';
     if (!isMine) {
         if (isFirstInGroup) {
-            avatarHtml = `<div class="chat-msg-avatar user-${msg.author ? msg.author.toLowerCase() : 'p'}">${msg.author || '?'}</div>`;
+            avatarHtml = `<div class="chat-msg-avatar user-${msg.author ? msg.author.toLowerCase() : 's'}">${msg.author || '?'}</div>`;
         } else {
             avatarHtml = `<div class="chat-msg-avatar invisible">·</div>`;
         }
@@ -2811,7 +2868,7 @@ function openChatThemeModal() {
         btn.addEventListener('click', () => {
             applyChatTheme(key);
             currentChatTheme = key;
-            localStorage.setItem('lovelore_chat_theme', key);
+            localStorage.setItem('lovelore_chat_theme_v2', key);
             // Save to Firestore so partner sees it too
             if (fdb) {
                 fdb.collection(CHAT_META_COLLECTION).doc('theme').set({ current: key, updatedAt: firebase.firestore.FieldValue.serverTimestamp() }).catch(e => console.error('Theme save failed:', e));
@@ -2868,7 +2925,7 @@ function applyChatTheme(themeKey) {
 
 function loadChatTheme() {
     // Load from localStorage first for instant apply
-    const savedTheme = localStorage.getItem('lovelore_chat_theme');
+    const savedTheme = localStorage.getItem('lovelore_chat_theme_v2');
     if (savedTheme) {
         applyChatTheme(savedTheme);
     }
@@ -2879,7 +2936,7 @@ function loadChatTheme() {
                 const theme = doc.data().current;
                 if (theme && theme !== currentChatTheme) {
                     applyChatTheme(theme);
-                    localStorage.setItem('lovelore_chat_theme', theme);
+                    localStorage.setItem('lovelore_chat_theme_v2', theme);
                 }
             }
         });

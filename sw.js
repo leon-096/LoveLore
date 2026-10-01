@@ -1,10 +1,10 @@
 /* ============================================
-   LoveLore Social — Service Worker v4
+   LoveLore Social — Service Worker v5
    Network-first for instant updates
    ============================================ */
 
-const CACHE_NAME = 'lovelore-v13';
-const RUNTIME_CACHE = 'lovelore-runtime-v13';
+const CACHE_NAME = 'lovelore-v14';
+const RUNTIME_CACHE = 'lovelore-runtime-v14';
 
 // Core app files to pre-cache on install
 const APP_SHELL = [

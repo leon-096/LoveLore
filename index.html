@@ -11,7 +11,7 @@
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Playfair+Display:ital,wght@0,400;0,600;0,700;1,400&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css">
-    <link rel="stylesheet" href="css/style.css?v=13">
+    <link rel="stylesheet" href="css/style.css?v=14">
 </head>
 <body>
 
@@ -29,7 +29,7 @@
                 <div class="avatar-options">
                     <button class="avatar-btn avatar-a" data-user="A"><span class="avatar-letter">A</span></button>
                     <div class="avatar-heart-connector"><i class="fas fa-heart"></i></div>
-                    <button class="avatar-btn avatar-p" data-user="P"><span class="avatar-letter">P</span></button>
+                    <button class="avatar-btn avatar-s" data-user="S"><span class="avatar-letter">S</span></button>
                 </div>
             </div>
             <div id="passwordSection" class="password-section">
@@ -95,7 +95,7 @@
                     <span class="anni-float-heart" style="left:72%;top:10%;animation-delay:2s"><i class="fas fa-heart"></i></span>
                 </div>
                 <div class="anni-content">
-                    <div class="anni-names">A <i class="fas fa-heart anni-heart-icon"></i> P</div>
+                    <div class="anni-names">A <i class="fas fa-heart anni-heart-icon"></i> S</div>
                     <div class="anni-counter"><span class="anni-number" id="anniDays">0</span><span class="anni-label">days together</span></div>
                     <div class="anni-date" id="anniDate">Since forever</div>
                 </div>
@@ -152,9 +152,9 @@
             <div class="chat-header">
                 <div class="chat-header-left">
                     <button class="chat-back-btn" id="chatBackBtn" title="Back"><i class="fas fa-arrow-left"></i></button>
-                    <div id="chatPartnerAvatar" class="chat-partner-avatar">P</div>
+                    <div id="chatPartnerAvatar" class="chat-partner-avatar">S</div>
                     <div class="chat-header-info">
-                        <div id="chatPartnerName" class="chat-partner-name">Partner</div>
+                        <div id="chatPartnerName" class="chat-partner-name">Sristi</div>
                         <div id="chatPartnerStatus" class="chat-partner-status">offline</div>
                     </div>
                 </div>
@@ -179,7 +179,7 @@
             <!-- Reply Preview (Instagram-style with colored border) -->
             <div id="chatReplyPreview" class="chat-reply-preview" style="display:none">
                 <div class="chat-reply-preview-content">
-                    <div class="chat-reply-preview-author" id="chatReplyAuthor">P</div>
+                    <div class="chat-reply-preview-author" id="chatReplyAuthor">S</div>
                     <div class="chat-reply-preview-text" id="chatReplyText">Message preview...</div>
                 </div>
                 <button class="chat-reply-cancel" id="chatReplyCancel"><i class="fas fa-times"></i></button>
@@ -396,7 +396,7 @@
                 <div class="daily-note-modal-prompt" id="dailyNoteModalPrompt"></div>
                 <textarea id="dailyNoteInput" placeholder="Write your heart out..." class="post-textarea" rows="3"></textarea>
                 <div id="dailyNotePartnerResponse" class="daily-note-partner" style="display:none">
-                    <div class="daily-note-partner-label" id="dailyNotePartnerLabel">P wrote:</div>
+                    <div class="daily-note-partner-label" id="dailyNotePartnerLabel">S wrote:</div>
                     <div class="daily-note-partner-text" id="dailyNotePartnerText"></div>
                 </div>
             </div>
@@ -449,6 +449,6 @@
     <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-app-compat.js"></script>
     <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore-compat.js"></script>
     <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-auth-compat.js"></script>
-    <script src="js/app.js?v=13"></script>
+    <script src="js/app.js?v=14"></script>
 </body>
 </html>
